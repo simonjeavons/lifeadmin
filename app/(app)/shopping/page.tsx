@@ -56,7 +56,7 @@ export default function ShoppingPage() {
         .eq('household_id', member.household_id)
         .order('created_at', { ascending: true })
         .limit(1)
-        .single()
+        .maybeSingle()
 
       if (!list) {
         const { data: newList, error: createError } = await supabase
@@ -86,7 +86,7 @@ export default function ShoppingPage() {
       await loadItems(list.id)
       setLoading(false)
 
-      // Realtime subscription
+      // Realtime subscription for cross-device sync
       const supabaseRt = createClient()
       const channel = supabaseRt
         .channel(`shopping_items_${list.id}`)
@@ -123,53 +123,121 @@ export default function ShoppingPage() {
     if (!name || !listId || !userId) return
     setAdding(true)
 
-    const supabase = createClient()
-    const { error: insertError } = await supabase.from('shopping_items').insert({
+    // Optimistic add
+    const tempId = `temp-${Date.now()}`
+    const optimisticItem: ShoppingItem = {
+      id: tempId,
       shopping_list_id: listId,
       created_by: userId,
       name,
       quantity: newQuantity.trim() || null,
       is_checked: false,
-    })
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    }
+    setItems((prev) => [...prev, optimisticItem])
+    setNewItem('')
+    setNewQuantity('')
 
-    if (insertError) setError(insertError.message)
-    else {
-      setNewItem('')
-      setNewQuantity('')
+    const supabase = createClient()
+    const { data: inserted, error: insertError } = await supabase
+      .from('shopping_items')
+      .insert({
+        shopping_list_id: listId,
+        created_by: userId,
+        name,
+        quantity: newQuantity.trim() || null,
+        is_checked: false,
+      })
+      .select()
+      .single()
+
+    if (insertError) {
+      // Roll back optimistic item
+      setItems((prev) => prev.filter((i) => i.id !== tempId))
+      setError(insertError.message)
+    } else if (inserted) {
+      // Replace temp item with real one
+      setItems((prev) => prev.map((i) => (i.id === tempId ? inserted : i)))
     }
     setAdding(false)
   }
 
   async function toggleItem(item: ShoppingItem) {
+    // Optimistic toggle
+    setItems((prev) =>
+      prev.map((i) => (i.id === item.id ? { ...i, is_checked: !i.is_checked } : i))
+    )
+
     const supabase = createClient()
-    await supabase
+    const { error: updateError } = await supabase
       .from('shopping_items')
       .update({ is_checked: !item.is_checked, updated_at: new Date().toISOString() })
       .eq('id', item.id)
+
+    if (updateError) {
+      // Roll back
+      setItems((prev) =>
+        prev.map((i) => (i.id === item.id ? { ...i, is_checked: item.is_checked } : i))
+      )
+      setError(updateError.message)
+    }
   }
 
   async function deleteItem(id: string) {
+    // Optimistic delete
+    setItems((prev) => prev.filter((i) => i.id !== id))
+
     const supabase = createClient()
-    await supabase.from('shopping_items').delete().eq('id', id)
+    const { error: deleteError } = await supabase
+      .from('shopping_items')
+      .delete()
+      .eq('id', id)
+
+    if (deleteError) {
+      if (listId) await loadItems(listId)
+      setError(deleteError.message)
+    }
   }
 
   async function deleteCheckedItems() {
     if (!listId) return
-    const supabase = createClient()
     const checkedIds = items.filter((i) => i.is_checked).map((i) => i.id)
     if (checkedIds.length === 0) return
-    await supabase.from('shopping_items').delete().in('id', checkedIds)
+
+    // Optimistic delete
+    setItems((prev) => prev.filter((i) => !i.is_checked))
+
+    const supabase = createClient()
+    const { error: deleteError } = await supabase
+      .from('shopping_items')
+      .delete()
+      .in('id', checkedIds)
+
+    if (deleteError) {
+      if (listId) await loadItems(listId)
+      setError(deleteError.message)
+    }
   }
 
   async function uncheckAll() {
     if (!listId) return
-    const supabase = createClient()
     const checkedIds = items.filter((i) => i.is_checked).map((i) => i.id)
     if (checkedIds.length === 0) return
-    await supabase
+
+    // Optimistic uncheck
+    setItems((prev) => prev.map((i) => ({ ...i, is_checked: false })))
+
+    const supabase = createClient()
+    const { error: updateError } = await supabase
       .from('shopping_items')
       .update({ is_checked: false, updated_at: new Date().toISOString() })
       .in('id', checkedIds)
+
+    if (updateError) {
+      if (listId) await loadItems(listId)
+      setError(updateError.message)
+    }
   }
 
   const uncheckedItems = items.filter((i) => !i.is_checked)
@@ -225,7 +293,6 @@ export default function ShoppingPage() {
             type="text"
             value={newItem}
             onChange={(e) => setNewItem(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddItem() } }}
             placeholder="Add an item..."
             className="flex-1 px-3 py-2.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm"
           />
@@ -246,7 +313,7 @@ export default function ShoppingPage() {
         </form>
       </div>
 
-      {/* Unchecked items */}
+      {/* Items list */}
       {uncheckedItems.length === 0 && checkedItems.length === 0 ? (
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-10 text-center">
           <div className="w-14 h-14 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -284,7 +351,6 @@ export default function ShoppingPage() {
             </div>
           ))}
 
-          {/* Checked items */}
           {checkedItems.length > 0 && (
             <>
               <div className="px-4 py-2 bg-slate-50">
