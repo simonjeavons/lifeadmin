@@ -1,8 +1,12 @@
 {
   "name": "lifeadmin",
+  "main": ".open-next/worker.js",
   "compatibility_date": "2025-03-01",
   "compatibility_flags": ["nodejs_compat"],
-  "pages_build_output_dir": ".open-next/assets",
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
   "vars": {
     "NEXT_PUBLIC_SUPABASE_URL": "https://gzlbdekrdcdgwquaqges.supabase.co"
   }
