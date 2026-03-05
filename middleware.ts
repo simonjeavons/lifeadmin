@@ -1,8 +1,6 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
-export const runtime = 'edge'
-
 const PROTECTED_PATHS = [
   '/dashboard',
   '/bills',
@@ -17,7 +15,7 @@ const PUBLIC_ONLY_PATHS = ['/login']
 
 const ALWAYS_ALLOWED = ['/auth/callback', '/invite']
 
-export async function proxy(request: NextRequest) {
+export async function middleware(request: NextRequest) {
   let supabaseResponse = NextResponse.next({
     request,
   })
