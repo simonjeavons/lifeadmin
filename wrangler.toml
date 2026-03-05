@@ -1,0 +1,8 @@
+name = "lifeadmin"
+compatibility_date = "2025-03-01"
+compatibility_flags = ["nodejs_compat"]
+pages_build_output_dir = ".vercel/output/static"
+
+[vars]
+NEXT_PUBLIC_SUPABASE_URL = "https://gzlbdekrdcdgwquaqges.supabase.co"
+# NEXT_PUBLIC_SUPABASE_ANON_KEY is set via Cloudflare Pages dashboard (not committed)
